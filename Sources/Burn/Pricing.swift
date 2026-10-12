@@ -9,14 +9,50 @@ final class Pricing {
     private let reportedIsFinal: Bool
 
     /// `reportedIsFinal`: Claude Code prices telemetry with its own table, so reported costs get no premium.
-    init(dir: URL, reportedIsFinal: Bool) {
+    init(dir: URL, reportedIsFinal: Bool,
+         bundled: URL = Bundle.main.url(forResource: "pricing", withExtension: "json") ?? URL(fileURLWithPath: "Resources/pricing.json")) {
         self.reportedIsFinal = reportedIsFinal
         url = dir.appendingPathComponent("pricing.json")
-        if !FileManager.default.fileExists(atPath: url.path) {
-            let bundled = Bundle.main.url(forResource: "pricing", withExtension: "json")
-                ?? URL(fileURLWithPath: "Resources/pricing.json")
-            try? FileManager.default.copyItem(at: bundled, to: url)
+        Self.merge(bundled: bundled, into: url, base: dir.appendingPathComponent("pricing.bundled.json"))
+    }
+
+    /// Brings a new bundled table into the user's file: entries still equal to `base`, the bundle last merged, follow the bundle;
+    /// edits, nulls and deletions stay. Without `base` (installs from before it existed) every existing entry counts as edited.
+    static func merge(bundled: URL, into user: URL, base: URL) {
+        guard let data = try? Data(contentsOf: bundled), let new = object(data),
+              let newModels = new["models"] as? [String: Any] else { return }
+        if FileManager.default.fileExists(atPath: user.path) {
+            let baseData = try? Data(contentsOf: base)
+            guard baseData != data else { return }
+            // An unparseable file is left for reloadIfChanged to report; base stays old so the merge retries next launch.
+            guard let mine = (try? Data(contentsOf: user)).flatMap(object),
+                  var models = mine["models"] as? [String: Any] else { return }
+            let old = baseData.flatMap(object)
+            func take(_ new: Any?, _ mine: Any?, _ old: Any?) -> Any? {
+                guard let new else { return mine }
+                guard let mine else { return old == nil ? new : nil }
+                return (old as? NSObject)?.isEqual(mine) == true ? new : mine
+            }
+            let oldModels = old.map { $0["models"] as? [String: Any] ?? [:] }
+            for (k, v) in newModels { models[k] = take(v, models[k], oldModels?[k]) }
+            var merged = mine
+            merged["models"] = models
+            // Without base, a missing regionalPremium may be a deliberate deletion, so only models are added.
+            merged["regionalPremium"] = old == nil ? mine["regionalPremium"]
+                : take(new["regionalPremium"], mine["regionalPremium"], old?["regionalPremium"])
+            merged["note"] = new["note"] ?? mine["note"]
+            if !NSDictionary(dictionary: merged).isEqual(to: mine) {
+                guard let out = try? JSONSerialization.data(withJSONObject: merged, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+                      (try? out.write(to: user, options: .atomic)) != nil else { return }
+            }
+        } else {
+            guard (try? data.write(to: user, options: .atomic)) != nil else { return }
         }
+        try? data.write(to: base, options: .atomic)
+    }
+
+    private static func object(_ data: Data) -> [String: Any]? {
+        try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
 
     func reloadIfChanged(into db: DB) {

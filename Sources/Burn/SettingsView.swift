@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @StateObject private var status = Note()
+    @ObservedObject private var updater = Updater.shared
 
     var body: some View {
         Form {
@@ -11,6 +12,15 @@ struct SettingsView: View {
                     status.text = LoginItem.set(on) ?? ""
                     status.login = LoginItem.enabled
                 }))
+                Toggle("Check for updates daily", isOn: $updater.daily)
+                HStack {
+                    Text(updater.line).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    Spacer()
+                    if case .available(let tag) = updater.phase, LoginItem.installed {
+                        Button("Update to \(tag)") { Task { await updater.update(to: tag) } }
+                    }
+                    Button("Check now") { Task { await updater.check() } }.disabled(updater.busy)
+                }
             }
 
             AlertsSection(notifier: model.notifier, changed: model.refresh, test: model.testAlert)
@@ -48,7 +58,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         // A grouped Form scrolls, so it has no height of its own; without this the window opens empty.
-        .frame(width: 540, height: 680)
+        .frame(width: 540, height: 740)
         .padding()
     }
 }
@@ -61,13 +71,12 @@ struct AlertsSection: View {
     @AppStorage("alert.day") private var daily: Double?
     @AppStorage("alert.week") private var weekly: Double?
     @AppStorage("alert.month") private var monthly: Double?
-    @AppStorage("alert.hideWhenSharing") private var hideWhenSharing = false
 
     var body: some View {
         Section("Alerts") {
-            AmountField(label: "Daily (USD)", amount: amount($daily))
-            AmountField(label: "Weekly (USD)", amount: amount($weekly))
-            AmountField(label: "Monthly (USD)", amount: amount($monthly))
+            AmountField(label: "Daily", amount: amount($daily))
+            AmountField(label: "Weekly", amount: amount($weekly))
+            AmountField(label: "Monthly", amount: amount($monthly))
             Picker("Sound", selection: Binding(get: { sound }, set: { sound = $0; NSSound(named: $0)?.play() })) {
                 Text("None").tag("")
                 ForEach(Settings.systemSounds, id: \.self) { Text($0).tag($0) }
@@ -87,7 +96,6 @@ struct AlertsSection: View {
                 Spacer()
                 Button("Send test notification", action: test)
             }
-            Toggle("Hide banner when sharing the screen", isOn: $hideWhenSharing)
             if !notifier.error.isEmpty { Text(notifier.error).font(.caption).foregroundStyle(.red) }
             Text("Each alert fires once per period; changing the amount re-arms it.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -114,11 +122,18 @@ private struct AmountField: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        TextField(label, text: $draft.text, prompt: Text("Off"))
-            .focused($focused)
-            .onSubmit(commit)
-            .onChange(of: focused) { _, now in if !now { commit() } }
-            .onAppear(perform: show)
+        LabeledContent(label) {
+            HStack(spacing: 2) {
+                Text("$").foregroundStyle(.secondary)
+                TextField(label, text: $draft.text, prompt: Text("Off"))
+                    .labelsHidden()
+                    .frame(width: 80)
+                    .focused($focused)
+                    .onSubmit(commit)
+                    .onChange(of: focused) { _, now in if !now { commit() } }
+            }
+        }
+        .onAppear(perform: show)
     }
 
     private func commit() {

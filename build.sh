@@ -1,6 +1,6 @@
 #!/bin/bash
 # Usage: ./build.sh [install]
-# BURN_VERSION=0.2 sets the version shown in Finder.
+# BURN_VERSION=0.2 sets the version; without it, the latest git tag does.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -26,8 +26,10 @@ if xcrun --find actool >/dev/null 2>&1; then
         cp Resources/Burn.icns "$app/Contents/Resources/Burn.icns"
     fi
 fi
-if [ -n "${BURN_VERSION:-}" ]; then
-    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $BURN_VERSION" "$app/Contents/Info.plist"
+# Otherwise a local build reports Info.plist's 0.1 and the updater always offers an update.
+version="${BURN_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null || true)}"
+if [ -n "$version" ]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${version#v}" "$app/Contents/Info.plist"
 fi
 codesign --force --sign - "$app"
 echo "built $app"

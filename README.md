@@ -8,7 +8,7 @@
 
 [![macOS](https://img.shields.io/badge/macOS-14+_Apple_Silicon-000?style=flat-square&logo=apple)](https://www.apple.com/mac/)
 [![Swift](https://img.shields.io/badge/Swift-SwiftUI-F05138?style=flat-square&logo=swift&logoColor=white)](https://www.swift.org/)
-[![Release](https://img.shields.io/github/v/release/JRaunak/Burn?style=flat-square)](https://github.com/JRaunak/Burn/releases/latest)
+[![Release](https://img.shields.io/github/v/release/JRaunak/burn?style=flat-square)](https://github.com/JRaunak/burn/releases/latest)
 
 [Install](#install) • [What it shows](#what-it-shows) • [What it counts](#what-it-counts) • [Spend alerts](#spend-alerts) • [How cost is computed](#how-cost-is-computed) • [Troubleshooting](#troubleshooting)
 
@@ -16,15 +16,15 @@
 
 Burn puts today's Claude Code spend in the menu bar. Click it for today's breakdown by project, model, and main agent vs subagents, or open History to filter any date range by project, model, session, and agent. It reads Claude Code's transcripts and, if you set it up, Claude Code's telemetry, and it can alert you when spend passes a daily, weekly, or monthly amount.
 
-It uses no AI tokens and makes no network requests. Telemetry arrives on a listener bound to 127.0.0.1. Burn only reads `~/.claude`, except when you set up or remove telemetry in Settings and confirm the change.
+It uses no AI tokens. Its only network requests are update checks and downloads: daily if you turn that on in Settings, otherwise only when you click "Check now". Telemetry arrives on a listener bound to 127.0.0.1. Burn only reads `~/.claude`, except when you set up or remove telemetry in Settings and confirm the change.
 
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/JRaunak/Burn/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/JRaunak/burn/master/install.sh | bash
 ```
 
-`install.sh` downloads `Burn.tar.gz` from the [latest release](https://github.com/JRaunak/Burn/releases/latest), quits Burn if it's running, replaces `~/Applications/Burn.app`, and opens it. The prebuilt app is Apple Silicon only. On an Intel Mac, or on a network that blocks GitHub's release-asset host (`release-assets.githubusercontent.com`, which some company networks do), the script downloads the same release's source from `codeload.github.com` and builds it with `build.sh` instead. That needs the Command Line Tools and takes about a minute.
+`install.sh` downloads `Burn.tar.gz` from the [latest release](https://github.com/JRaunak/burn/releases/latest), quits Burn if it's running, replaces `~/Applications/Burn.app`, and opens it. The prebuilt app is Apple Silicon only. On an Intel Mac, or on a network where curl can't reach GitHub's release-asset host (`release-assets.githubusercontent.com`; some company networks break curl's TLS to it), the script downloads the same release's source from `codeload.github.com` and builds it with `build.sh` instead. That needs the Command Line Tools and takes about a minute.
 
 > [!WARNING]
 > Releases are ad-hoc signed, not notarized. Files fetched with `curl` don't get the quarantine attribute, so Gatekeeper doesn't block the app. Downloading the same archive in a browser does set it, and macOS will then refuse to open it. Use the script.
@@ -33,7 +33,19 @@ The first time Burn runs from `/Applications` or `~/Applications`, it adds itsel
 
 ### Update
 
-Run the install command again. It installs the latest release over the old app. Your data in `~/Library/Application Support/Burn`, your Settings, and the telemetry setup in `~/.claude/settings.json` are kept. Updates never replace `pricing.json` there, so new shipped prices don't reach you on their own (see [pricing.json](#pricingjson)).
+Settings > General has the updater:
+
+- "Check for updates daily" is off by default. With it on, Burn checks at launch if the last check was over 20 hours ago, and then about once a day.
+- "Check now" checks immediately. A check is one HEAD request to `https://github.com/JRaunak/burn/releases/latest`, read for the tag it redirects to.
+- The line beside the buttons shows the current version, "Up to date", or the newer tag. When there is one, an "Update to vX" button appears.
+
+Updating downloads that release's `Burn.tar.gz` (Apple Silicon only). If the download fails, or the Mac is Intel, Burn builds that tag's source from `codeload.github.com` with `build.sh` instead, which needs the Command Line Tools and takes about a minute. It then checks the new app's bundle ID and version match the tag, removes the quarantine attribute, replaces the app where it is, and relaunches. The downloads go through URLSession, which reaches the release-asset host on networks where curl's TLS to it fails, so the curl limit above doesn't apply. If an update fails, Settings shows the error and the install command to run instead.
+
+Only a copy in `/Applications` or `~/Applications` updates itself. Elsewhere, Settings reports the new version but shows no Update button.
+
+Each update has a new ad-hoc signature, so macOS may ask again for notification permission. This hasn't been checked. If alerts stop after an update, look in System Settings > Notifications > Burn.
+
+Running the install command again also updates. It installs the latest release over the old app. Your data in `~/Library/Application Support/Burn`, your Settings, and the telemetry setup in `~/.claude/settings.json` are kept. New shipped prices are merged into your `pricing.json` at launch, and your own edits are kept (see [Shipped price updates](#shipped-price-updates)).
 
 ## Requirements
 
@@ -47,8 +59,8 @@ Run the install command again. It installs the latest release over the old app. 
 ## Build from source
 
 ```sh
-git clone https://github.com/JRaunak/Burn.git
-cd Burn
+git clone https://github.com/JRaunak/burn.git
+cd burn
 ./build.sh install
 ```
 
@@ -60,7 +72,7 @@ cd Burn
 | `scripts/test.sh` | Runs the tests; extra arguments go to `swift test` |
 | `scripts/make-icon.sh` | Regenerates the app icon from `FlameGlyph.swift` (see [Icon](#icon)) |
 
-`BURN_VERSION=0.2 ./build.sh` sets the version shown in Finder. There are no third-party dependencies; Burn links the system SQLite.
+`build.sh` sets the version from the latest git tag (`git describe --tags --abbrev=0`, with the leading `v` dropped). `BURN_VERSION=0.2 ./build.sh` overrides it. Outside a git checkout with no `BURN_VERSION`, the version stays at `Info.plist`'s `0.1`, so the updater would treat any release as newer. There are no third-party dependencies; Burn links the system SQLite.
 
 Use `scripts/test.sh` rather than plain `swift test`. Under the Command Line Tools, `swift test` finds the Swift Testing macro plugin only on some clean builds, so the script passes the toolchain's plugin path to it.
 
@@ -84,7 +96,7 @@ Click the total for:
 
 ### History
 
-Filters for date range, project, model, and agent (all, main agent, or subagents). The range starts at the first of this month and runs through today; if "To" is today, it keeps following today. Above the chart are the total, token count, active days, and unpriced tokens when there are any.
+Filters for date range, project, model, and agent (all, main agent, or subagents). "From" and "To" are buttons showing the date, such as 11 Oct 2026 in your region's format; click one for a calendar. The range starts at the first of this month and runs through today; if "To" is today, it keeps following today. Above the chart are the total, token count, active days, and unpriced tokens when there are any.
 
 The chart shows daily cost stacked by model. Below it, the 500 most expensive sessions in the range, with start time, project, message count, subagent share, and cost. Click a session ID to filter to that session; click it again, or the "Session … ✕" button, to clear it. Closing the window resets the filters.
 
@@ -138,22 +150,17 @@ Burn records the cost of each `api_request` event (`cost_usd_micros`, or `cost_u
 
 ## Spend alerts
 
-Set amounts in USD under Alerts in Settings: Daily, Weekly, and Monthly. An empty field is off. An amount is saved when you press Return or leave the field. Weeks start on the first weekday of your macOS region settings.
+Set amounts in USD under Alerts in Settings: Daily, Weekly, and Monthly. An empty field is off. An amount is saved when you press Return, leave the field, or close Settings. Weeks start on the first weekday of your macOS region settings.
 
 Burn checks the totals on each refresh. When a period's total reaches its amount, the alert fires once for that period, for example "$52.10 today. Over your $50 daily alert." Changing the amount re-arms it for the current period. Unpriced usage isn't in the total, and the alert adds "Plus unpriced usage." when there is some.
 
-Each alert arrives two ways:
+Each alert is a macOS notification in Notification Center, and Burn plays the chosen sound itself. The notification itself is silent. The sound plays once each time alerts fire, however many fire together.
 
-| | macOS notification | Burn's banner |
-| - | ------------------ | ------------- |
-| Where | Notification Center | Top-right of the display where you last clicked Burn, one per period |
-| Needs permission | Yes. macOS may not show a permission prompt for an ad-hoc signed app, so switch Burn on in System Settings > Notifications. Settings > Alerts shows the current state and has an "Open System Settings" button. | No |
-| During screen sharing or Focus | Hidden by macOS | Shown, unless you turn on "Hide banner when sharing the screen" (off by default) |
-| Sound | None | Burn plays the chosen sound once each time alerts fire |
+macOS may not show a permission prompt for an ad-hoc signed app, so switch Burn on in System Settings > Notifications. Settings > Alerts shows the current state and has an "Open System Settings" button.
 
-The banner closes after 8 seconds (15 with VoiceOver on), stays while the pointer is over it, and has a close button on hover. Clicking it opens History for that period.
+macOS doesn't show the notification while notifications are off for Burn, and it hides notifications during screen sharing and Focus. Burn has no other way to show an alert, so you get only the sound then (if one is chosen), and the alert still counts as fired for that period. Burn doesn't handle clicks on the notification.
 
-"Sound" lists the system sounds in `/System/Library/Sounds` (default Glass, or None) and plays the one you pick. "Send test notification" sends a sample daily alert both ways, with the sound.
+"Sound" lists the system sounds in `/System/Library/Sounds` (default Glass, or None) and plays the one you pick. "Send test notification" sends a sample daily alert and plays the sound.
 
 ## How cost is computed
 
@@ -163,7 +170,20 @@ Claude Code transcripts record tokens, not dollars, so Burn prices each assistan
 
 Prices come from `~/Library/Application Support/Burn/pricing.json`, in USD per million tokens with `input`, `output`, `cacheWrite` (5-minute cache writes), `cacheWrite1h` (1-hour cache writes), and `cacheRead` per model. Open it from Settings with "Open pricing.json". Burn re-reads it when its modification time changes, which it checks on each refresh (new usage, opening the popover, or every 5 minutes). Model keys are matched after stripping region prefixes, `anthropic.`, `[1m]`, date suffixes, and `-v1:0`, so `us.anthropic.claude-haiku-4-5-20251001-v1:0` matches `claude-haiku-4-5`.
 
-The bundled `Resources/pricing.json` is only copied there when the file doesn't exist. Updating or rebuilding Burn with a new one doesn't change the file you already have; edit it, or delete it to get the new one.
+#### Shipped price updates
+
+On each launch Burn merges the `pricing.json` bundled in the app into yours. It keeps `pricing.bundled.json` next to your file, a copy of the bundle it last merged, and compares each entry against it:
+
+| Your entry | After the merge |
+| ---------- | --------------- |
+| Same as the last bundle | Takes the new bundle's price |
+| Edited, set to `null`, or deleted | Kept as you left it |
+| A model new in this bundle | Added |
+| A model the bundle dropped | Kept |
+
+`regionalPremium` follows the same rules, and `note` always comes from the bundle. If `pricing.bundled.json` doesn't exist yet, Burn treats every entry already in your file as yours and only adds missing models. If you have no `pricing.json`, Burn copies the bundle. Your file is rewritten only when the merge changes something, with keys sorted and pretty-printed, so your formatting and key order can change. A `pricing.json` that isn't valid JSON is left alone and the merge retries on the next launch.
+
+Deleting an entry doesn't bring it back, because a deletion is kept. To make an entry follow future updates again, copy it unchanged from `pricing.bundled.json` into `pricing.json`. To drop all your edits, quit Burn, delete `pricing.json`, and relaunch.
 
 The shipped prices are list prices from Anthropic's pricing page. For Opus 5.5, Opus 4.8, Sonnet 5 and Haiku 4.5, the input, output, 5-minute write, and read prices were also fitted from Claude Code's own cost-state records and match the page. The 1-hour write prices come from the page only.
 
@@ -217,9 +237,11 @@ To start over, quit Burn and delete `usage.db` (and `usage.db-wal` and `usage.db
 - "OTEL_LOGS_EXPORTER in ~/.claude/settings.json includes "none", …". Remove `none` yourself if you want Claude Code's logs, then set up again.
 - "~/.claude/settings.json isn't valid JSON with an "env" object, so Burn won't edit it." Fix the file; Burn won't rewrite one it can't parse.
 - "Couldn't change ~/.claude/settings.json: …" in Settings. The file couldn't be read, backed up, or written, and the message gives the error. Burn writes atomically, so the file is left as it was.
-- "Notifications are turned off for Burn." in Settings > Alerts, or no macOS notification. Turn Burn on in System Settings > Notifications > Burn. Burn's own banner shows either way.
+- "Notifications are turned off for Burn." in Settings > Alerts, or no macOS notification. Turn Burn on in System Settings > Notifications > Burn. Until you do, alerts are only the sound.
 - "Notification not sent: …" in the popover or Settings. macOS refused the notification; check System Settings > Notifications > Burn.
-- An alert's macOS notification didn't show while sharing the screen or in Focus. macOS hides it then. Burn's banner still shows unless "Hide banner when sharing the screen" is on.
+- An alert's notification didn't show while sharing the screen or in Focus. macOS hides it then, and Burn has no fallback. The alert won't fire again that period.
+- "Update failed (…). To reinstall by hand: curl …" in Settings. The download and source build both failed, or the app couldn't be replaced; the message gives the errors. Run the command it shows. "it needs the Command Line Tools" means run `xcode-select --install` first.
+- "Updated to vX. Quit and reopen Burn to finish." The new app is in place but Burn couldn't relaunch itself. Quit and open it.
 - "Login item: …" in Settings. macOS refused the login item, usually because a managed Mac blocks them by policy.
 
 ## Icon

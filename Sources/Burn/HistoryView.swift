@@ -97,10 +97,8 @@ struct HistoryView: View {
 
     private var filters: some View {
         HStack {
-            DatePicker("From", selection: $h.filter.from, in: ...(h.filter.to ?? Date()), displayedComponents: .date)
-                .fixedSize()
-            DatePicker("To", selection: toDate, in: h.filter.from...Date(), displayedComponents: .date)
-                .fixedSize()
+            dateButton("From", $h.filter.from, in: .distantPast...(h.filter.to ?? Date()), shown: $h.pickingFrom)
+            dateButton("To", toDate, in: h.filter.from...Date(), shown: $h.pickingTo)
             Picker("Project", selection: $h.filter.project) {
                 Text("All").tag("")
                 ForEach(h.projects, id: \.self) { Text($0).tag($0) }
@@ -123,6 +121,19 @@ struct HistoryView: View {
     private var toDate: Binding<Date> {
         Binding(get: { h.filter.to ?? Date() },
                 set: { h.filter.to = Calendar.current.isDateInToday($0) ? nil : $0 })
+    }
+
+    /// A calendar in a popover, because NSDatePicker's text field clips two-digit days and fills the edited segment with the accent colour.
+    private func dateButton(_ title: String, _ date: Binding<Date>, in range: ClosedRange<Date>, shown: Binding<Bool>) -> some View {
+        LabeledContent(title) {
+            Button { shown.wrappedValue = true } label: {
+                Text(date.wrappedValue, format: .dateTime.day().month(.abbreviated).year()).monospacedDigit()
+            }
+            .popover(isPresented: shown) {
+                DatePicker(title, selection: date, in: range, displayedComponents: .date)
+                    .datePickerStyle(.graphical).labelsHidden().padding(8)
+            }
+        }
     }
 
     private func stat(_ title: String, _ value: String) -> some View {
@@ -249,6 +260,8 @@ struct DailyData {
 final class HistoryModel: ObservableObject {
     @Published var filter = Filter()
     @Published var selectedDay: Date?
+    @Published var pickingFrom = false
+    @Published var pickingTo = false
     @Published var sortOrder = [KeyPathComparator(\SessionRow.cost, order: .reverse)] {
         didSet { sessions.sort(using: sortOrder) }
     }

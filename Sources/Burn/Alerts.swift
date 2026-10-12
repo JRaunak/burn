@@ -24,29 +24,19 @@ enum Alerts {
     struct Due: Equatable {
         let key: String
         let period: Period
-        let range: DateInterval
         let spent: Double
         let threshold: Double
         let unpriced: Bool
         var test = false
 
         static var sample: Due {
-            Due(key: "test", period: .day, range: Period.day.interval(Date()), spent: 52.10, threshold: 50, unpriced: false, test: true)
+            Due(key: "test", period: .day, spent: 52.10, threshold: 50, unpriced: false, test: true)
         }
 
-        var detail: String {
-            let limit = threshold.formatted(.currency(code: "USD").precision(.fractionLength(threshold == threshold.rounded() ? 0 : 2)))
-            return (test ? "Test: over" : "Over") + " your \(limit) \(period.name) alert."
-        }
         var body: String {
-            "\(usd(spent)) \(period.phrase). \(detail)" + (unpriced ? " Plus unpriced usage." : "")
-        }
-
-        var history: Filter {
-            var f = Filter()
-            f.from = range.start
-            f.to = range.end > Date() ? nil : range.end.addingTimeInterval(-1)
-            return f
+            let limit = threshold.formatted(.currency(code: "USD").precision(.fractionLength(threshold == threshold.rounded() ? 0 : 2)))
+            return "\(usd(spent)) \(period.phrase). " + (test ? "Test: over" : "Over") + " your \(limit) \(period.name) alert."
+                + (unpriced ? " Plus unpriced usage." : "")
         }
     }
 
@@ -65,7 +55,7 @@ enum Alerts {
             let key = prefix + "claude-code"
             guard let s = spent[p], s.cost >= amount, !fired.contains(key) else { continue }
             keep.append(key)
-            due.append(Due(key: key, period: p, range: range, spent: s.cost, threshold: amount,
+            due.append(Due(key: key, period: p, spent: s.cost, threshold: amount,
                            unpriced: s.unpricedTokens > 0))
         }
         return (due, keep)

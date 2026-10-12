@@ -40,8 +40,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let popover = NSPopover()
     private var subs: Set<AnyCancellable> = []
     private var monitors: [Any] = []
-    /// The display whose menu bar the user last clicked Burn on.
-    private var clickedScreen: NSScreen?
     /// An off-screen copy of the popover content at its natural height, used only for measuring.
     private var sizer: NSHostingView<AnyView>!
     /// The popover hangs off this instead of the status button. A popover re-anchors whenever it
@@ -59,10 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func applicationDidFinishLaunching(_ note: Notification) {
         Windows.shared.model = model
-        model.banners.screen = { [weak self] in
-            self?.clickedScreen.flatMap { NSScreen.screens.contains($0) ? $0 : nil } ?? self?.item.button?.window?.screen
-        }
         if let e = LoginItem.registerOnFirstLaunch() { model.report(e) }
+        Updater.shared.start()
         // .transient treated a click on the status button as an outside click, so the button
         // reopened what it had just closed. Every close is triggered by hand instead.
         popover.behavior = .applicationDefined
@@ -109,7 +105,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             // Every display draws a replica of the item, but the button's window is on one of them,
             // so move its rect to the display that was clicked, the same distance from the right edge.
             let screen = screenUnderMouse() ?? home
-            clickedScreen = screen
             var rect = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
             let bar = max(NSStatusBar.system.thickness, screen.safeAreaInsets.top)
             rect.origin.x = screen.frame.maxX - (home.frame.maxX - rect.minX)
@@ -208,7 +203,7 @@ final class Windows: NSObject, NSWindowDelegate {
         w.delegate = self
         place(w, on: screen)
         w.makeKeyAndOrderFront(nil)
-        // Otherwise the first date field takes focus and shows its accent-coloured selection.
+        // Otherwise Settings' first amount field takes focus and shows its accent-coloured selection.
         w.makeFirstResponder(nil)
         open[id] = w
     }
@@ -227,6 +222,8 @@ final class Windows: NSObject, NSWindowDelegate {
     /// Closing discards the window, so filters and other view state start fresh next time.
     func windowWillClose(_ note: Notification) {
         guard let w = note.object as? NSWindow else { return }
+        // Commits an amount being edited now, not when the next window takes the shared field editor.
+        w.makeFirstResponder(nil)
         if open["history"] === w { history = nil }
         open = open.filter { $0.value !== w }
     }
@@ -248,9 +245,12 @@ enum LoginItem {
         }
     }
 
-    /// Only for an installed copy, so a dev build in build/ never becomes the login item.
+    /// A dev build in build/ never becomes the login item or gets replaced by an update.
+    static var installed: Bool {
+        ["/Applications/", NSHomeDirectory() + "/Applications/"].contains { Bundle.main.bundlePath.hasPrefix($0) }
+    }
+
     static func registerOnFirstLaunch() -> String? {
-        let installed = ["/Applications/", NSHomeDirectory() + "/Applications/"].contains { Bundle.main.bundlePath.hasPrefix($0) }
         guard installed, !UserDefaults.standard.bool(forKey: "loginItem.asked") else { return nil }
         UserDefaults.standard.set(true, forKey: "loginItem.asked")
         return set(true)

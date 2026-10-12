@@ -161,7 +161,6 @@ final class AppModel: ObservableObject {
     /// Separate object so a frame tick redraws only the menu-bar label.
     let flame = FlameFrame()
     let notifier = Notifier()
-    let banners = Banners()
     @Published private(set) var telemetry = Telemetry.Status(line: "")
     @Published var telemetryError: String?
 
@@ -294,19 +293,18 @@ final class AppModel: ObservableObject {
             let (due, fired) = Alerts.check(now: now, cal: .current, amounts: amounts, spent: spent, fired: old)
             if fired != old { Settings.alertsFired = fired }
             due.forEach(self.notifier.send)
-            self.present(due)
+            self.chime(due)
         }
     }
 
     func testAlert() {
         let due = Alerts.Due.sample
         notifier.test(due)
-        present([due])
+        chime([due])
     }
 
-    private func present(_ due: [Alerts.Due]) {
+    private func chime(_ due: [Alerts.Due]) {
         guard !due.isEmpty else { return }
-        banners.show(due)
         if let s = Settings.alertSound { NSSound(named: s)?.play() }
     }
 
@@ -381,7 +379,6 @@ enum Settings {
         let s = d.string(forKey: "alert.sound") ?? defaultSound
         return s.isEmpty ? nil : s
     }
-    static var alertHideWhenSharing: Bool { d.bool(forKey: "alert.hideWhenSharing") }
     static var alertsFired: [String] {
         get { d.stringArray(forKey: "alerts.fired") ?? [] }
         set { d.set(newValue, forKey: "alerts.fired") }

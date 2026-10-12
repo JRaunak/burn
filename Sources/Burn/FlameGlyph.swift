@@ -105,12 +105,6 @@ enum FlameGlyph {
     /// Shown in colour while spend is landing.
     static let lit = menuBarImage(template: false) { c, r in draw(c, in: r, style: terracotta) }
 
-    /// The alert banner's badge, drawn at whatever scale the banner's screen has.
-    static let badge = NSImage(size: NSSize(width: 28, height: 28), flipped: false) { _ in
-        draw(NSGraphicsContext.current!.cgContext, in: CGRect(x: 2, y: 1, width: 24, height: 26), style: terracotta)
-        return true
-    }
-
     /// Monochrome when idle, tinted by macOS like every other menu-bar icon.
     static let idle = menuBarImage(template: true) { c, r in
         c.addPath(path(in: r))

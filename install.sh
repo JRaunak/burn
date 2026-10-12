@@ -1,12 +1,12 @@
 #!/bin/bash
 # Installs the latest Burn release into ~/Applications.
-#   curl -fsSL https://raw.githubusercontent.com/JRaunak/Burn/master/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/JRaunak/burn/master/install.sh | bash
 # curl doesn't set the quarantine flag, so Gatekeeper doesn't block the unsigned app.
 # If the prebuilt app can't be downloaded (Intel Mac, or a network that blocks GitHub's
 # release-asset host), it builds the same release from source instead.
 set -euo pipefail
 
-repo="JRaunak/Burn"
+repo="JRaunak/burn"
 dest="$HOME/Applications"
 
 tmp="$(mktemp -d)"
