@@ -141,13 +141,15 @@ final class OTelSource: UsageSource {
         let ts = (a["event.timestamp"] as? String).flatMap(parseISO) ?? (nanos > 0 ? nanos / 1e9 : Date().timeIntervalSince1970)
         let session = a["session.id"] as? String ?? ""
         let rid = a["request_id"] as? String
+        let write1h = n("cache_creation_1h_tokens")
         return UsageRow(
             id: "otel:" + (rid ?? "\(session):\(ts):\(n("output_tokens"))"), source: id, session: session,
             model: normalizeModel(model), ts: ts,
             sidechain: (a["query_source"] as? String) == "subagent",
             agent: a["query_source"] as? String ?? "",
             input: n("input_tokens"), output: n("output_tokens"),
-            cacheWrite: n("cache_creation_tokens"), cacheRead: n("cache_read_tokens"), requestID: rid,
+            cacheWrite: a["cache_creation_tokens"] != nil ? n("cache_creation_tokens") : n("cache_creation_5m_tokens") + write1h,
+            cacheWrite1h: write1h, cacheRead: n("cache_read_tokens"), requestID: rid,
             // Telemetry reports the short model name, so the configured provider's rule decides.
             cost: a["cost_usd_micros"] != nil ? Double(n("cost_usd_micros")) / 1e6 : d("cost_usd"),
             premium: Endpoints.isRegional(model) || endpoints.premium(provider: endpoints.configured, model: model, geo: nil))

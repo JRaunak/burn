@@ -13,14 +13,7 @@ struct SettingsView: View {
                     status.login = LoginItem.enabled
                 }))
                 Toggle("Check for updates daily", isOn: $updater.daily)
-                HStack {
-                    Text(updater.line).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                    Spacer()
-                    if case .available(let tag) = updater.phase, LoginItem.installed {
-                        Button("Update to \(tag)") { Task { await updater.update(to: tag) } }
-                    }
-                    Button("Check now") { Task { await updater.check() } }.disabled(updater.busy)
-                }
+                UpdaterRow(updater: updater)
             }
 
             AlertsSection(notifier: model.notifier, changed: model.refresh, test: model.testAlert)
@@ -60,6 +53,107 @@ struct SettingsView: View {
         // A grouped Form scrolls, so it has no height of its own; without this the window opens empty.
         .frame(width: 540, height: 740)
         .padding()
+    }
+}
+
+struct UpdaterRow: View {
+    @ObservedObject var updater: Updater
+
+    var body: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Burn v\(updater.version)")
+                Text(updater.caption).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    .help(fromSource ? updater.prebuiltError ?? "" : "")
+            }
+            Spacer()
+            progress
+            buttons
+        }
+        .onChange(of: updater.phase) { old, new in
+            if Self.announces(from: old, to: new) { AccessibilityNotification.Announcement(updater.caption).post() }
+        }
+    }
+
+    private var fromSource: Bool {
+        switch updater.phase {
+        case .source, .compiling, .assembling: true
+        default: false
+        }
+    }
+
+    @ViewBuilder private var progress: some View {
+        switch updater.phase {
+        case let .downloading(t, b): bar("Downloading \(t)", bytes: b)
+        case let .source(t, b): bar("Getting \(t) source", bytes: b)
+        case let .compiling(t, s): bar("Compiling \(t)", value: s?.fraction, said: s.map { "step \($0.n) of \($0.m)" } ?? "")
+        case .assembling: bar("Assembling Burn.app")
+        case .installing(let t): bar("Installing \(t)")
+        default: EmptyView()
+        }
+    }
+
+    private func bar(_ label: String, bytes b: Updater.Bytes) -> some View {
+        let got = Updater.bytes(b.received)
+        return bar(label, value: b.expected.map { Double(b.received) / Double($0) },
+                   said: b.expected.map { "\(got) of \(Updater.bytes($0))" } ?? got)
+    }
+
+    private func bar(_ label: String, value: Double? = nil, said: String = "") -> some View {
+        Group {
+            if let value {
+                ProgressView(value: min(value, 1), total: 1) { Text(label) }
+            } else {
+                ProgressView { Text(label) }.progressViewStyle(.linear)
+            }
+        }
+        .labelsHidden()
+        .controlSize(.small)
+        .frame(width: 120)
+        .accessibilityValue(said)
+    }
+
+    @ViewBuilder private var buttons: some View {
+        switch updater.phase {
+        case .available(let t) where LoginItem.installed:
+            Button("Update to \(t)") { updater.update(to: t) }
+            check
+        case .available:
+            copy
+            check
+        case .downloading, .source, .compiling, .assembling:
+            Button("Cancel", action: updater.cancel)
+        case .installing:
+            EmptyView()
+        case .failed(let t, _):
+            copy
+            Button("Update to \(t)") { updater.update(to: t) }
+        case .relaunchFailed:
+            Button("Quit Burn") { NSApp.terminate(nil) }
+        default:
+            check
+        }
+    }
+
+    private var check: some View {
+        Button("Check now") { Task { await updater.check() } }.disabled(updater.busy)
+    }
+
+    private var copy: some View {
+        Button("Copy install command") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(Updater.installCommand, forType: .string)
+        }
+    }
+
+    /// Outcomes only; going back to available after Cancel says nothing.
+    static func announces(from old: Updater.Phase, to new: Updater.Phase) -> Bool {
+        switch new {
+        case .current, .available: old == .checking
+        case .checkFailed, .failed, .relaunchFailed, .installing: true
+        default: false
+        }
     }
 }
 

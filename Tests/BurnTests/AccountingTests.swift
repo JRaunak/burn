@@ -113,6 +113,20 @@ private func apiRequest(_ rid: String, cost: Double, micros: Int? = nil) -> [Str
         #expect(rows[1].int(1) == 300 && rows[1].int(2) == 0 && rows[1][3] == nil)
     }
 
+    // Claude Code 2.1.300 added the split; older versions send only the total.
+    @Test(arguments: [
+        (["cache_creation_5m_tokens": 1000, "cache_creation_1h_tokens": 25080], 26080, 25080),
+        ([:], 26080, 0),
+        (["cache_creation_tokens": nil, "cache_creation_5m_tokens": 1000, "cache_creation_1h_tokens": 25080], 26080, 25080),
+    ] as [([String: Int?], Int, Int)])
+    func telemetrySplit(extra: [String: Int?], cacheWrite: Int, cacheWrite1h: Int) throws {
+        var a = apiRequest("r1", cost: 0.5)
+        for (k, v) in extra { a[k] = v }
+        let row = OTelSource(db: try Fixture().db, endpoints: Endpoints()).row(["attributes": attributes(a)])
+        #expect(row?.cacheWrite == cacheWrite)
+        #expect(row?.cacheWrite1h == cacheWrite1h)
+    }
+
     @Test func noBreakdownPricesEveryWriteAt5m() throws {
         let f = try Fixture()
         try f.store(transcript("m", rid: nil, premium: false, cacheWrite1h: 0))

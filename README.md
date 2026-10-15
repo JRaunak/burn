@@ -24,7 +24,7 @@ It uses no AI tokens. Its only network requests are update checks and downloads:
 curl -fsSL https://raw.githubusercontent.com/JRaunak/burn/master/install.sh | bash
 ```
 
-`install.sh` downloads `Burn.tar.gz` from the [latest release](https://github.com/JRaunak/burn/releases/latest), quits Burn if it's running, replaces `~/Applications/Burn.app`, and opens it. The prebuilt app is Apple Silicon only. On an Intel Mac, or on a network where curl can't reach GitHub's release-asset host (`release-assets.githubusercontent.com`; some company networks break curl's TLS to it), the script downloads the same release's source from `codeload.github.com` and builds it with `build.sh` instead. That needs the Command Line Tools and takes about a minute.
+`install.sh` downloads `Burn.tar.gz` from the [latest release](https://github.com/JRaunak/burn/releases/latest), quits Burn if it's running, replaces `~/Applications/Burn.app`, and opens it. The prebuilt app is Apple Silicon only. On an Intel Mac, or on a network where curl can't reach GitHub's release-asset host (`release-assets.githubusercontent.com`; some company networks break curl's TLS to it), the script downloads the same release's source from `codeload.github.com` and builds it with `build.sh` instead. That needs the Command Line Tools and takes about a minute. Both downloads show curl's progress bar.
 
 > [!WARNING]
 > Releases are ad-hoc signed, not notarized. Files fetched with `curl` don't get the quarantine attribute, so Gatekeeper doesn't block the app. Downloading the same archive in a browser does set it, and macOS will then refuse to open it. Use the script.
@@ -37,11 +37,29 @@ Settings > General has the updater:
 
 - "Check for updates daily" is off by default. With it on, Burn checks at launch if the last check was over 20 hours ago, and then about once a day.
 - "Check now" checks immediately. A check is one HEAD request to `https://github.com/JRaunak/burn/releases/latest`, read for the tag it redirects to.
-- The line beside the buttons shows the current version, "Up to date", or the newer tag. When there is one, an "Update to vX" button appears.
+The updater row reads "Burn vX" with the running version, and a status line under it. While an update runs, a small progress bar sits beside the buttons. The status line and buttons in each state:
 
-Updating downloads that release's `Burn.tar.gz` (Apple Silicon only). If the download fails, or the Mac is Intel, Burn builds that tag's source from `codeload.github.com` with `build.sh` instead, which needs the Command Line Tools and takes about a minute. It then checks the new app's bundle ID and version match the tag, removes the quarantine attribute, replaces the app where it is, and relaunches. The downloads go through URLSession, which reaches the release-asset host on networks where curl's TLS to it fails, so the curl limit above doesn't apply. If an update fails, Settings shows the error and the install command to run instead.
+| Status line | Buttons |
+| ----------- | ------- |
+| "Not checked yet", or "Last checked today at …" (also "yesterday at …", or a date) | Check now |
+| "Checking…" | Check now, disabled |
+| "Up to date. Last checked today at …" | Check now |
+| "Couldn't check for updates: …" | Check now |
+| "vX is available" | Update to vX, Check now |
+| "vX is available. Only a copy in Applications can update itself." | Copy install command, Check now |
+| "Downloading vX, … of …" | Cancel |
+| "Getting vX source, …", starting "Download failed." when the prebuilt download failed | Cancel |
+| "Compiling vX", then "Compiling vX, step n of m" | Cancel |
+| "Assembling Burn.app" | Cancel |
+| "Installing vX…" | none |
+| "Update failed: …" | Copy install command, Update to vX |
+| "Updated to vX. Quit and reopen Burn to finish." | Quit Burn |
 
-Only a copy in `/Applications` or `~/Applications` updates itself. Elsewhere, Settings reports the new version but shows no Update button.
+The step counts are `swift build`'s own, and the total can grow during the build. During a source build, hovering over the status line shows why the prebuilt download failed. Cancel stops the download or the build and goes back to "vX is available". "Copy install command" copies the `curl … | bash` command from [Install](#install).
+
+Updating downloads that release's `Burn.tar.gz` (Apple Silicon only). If the download fails, or the Mac is Intel, Burn builds that tag's source from `codeload.github.com` with `build.sh` instead, which needs the Command Line Tools and takes about a minute. It then checks the new app's bundle ID and version match the tag, removes the quarantine attribute, replaces the app where it is, and relaunches. The downloads go through URLSession, which reaches the release-asset host on networks where curl's TLS to it fails, so the curl limit above doesn't apply.
+
+Only a copy in `/Applications` or `~/Applications` updates itself. Elsewhere, the status line says so and there's no Update button.
 
 Each update has a new ad-hoc signature, so macOS may ask again for notification permission. This hasn't been checked. If alerts stop after an update, look in System Settings > Notifications > Burn.
 
@@ -96,7 +114,7 @@ Click the total for:
 
 ### History
 
-Filters for date range, project, model, and agent (all, main agent, or subagents). "From" and "To" are buttons showing the date, such as 11 Oct 2026 in your region's format; click one for a calendar. The range starts at the first of this month and runs through today; if "To" is today, it keeps following today. Above the chart are the total, token count, active days, and unpriced tokens when there are any.
+Filters for date range, project, model, and agent (all, main agent, or subagents). "From" and "To" are buttons showing the date, such as 11 Oct 2026 in your region's format; click one for a calendar, which closes when you pick a day. The range starts at the first of this month and runs through today; if "To" is today, it keeps following today. Above the chart are the total, token count, active days, and unpriced tokens when there are any.
 
 The chart shows daily cost stacked by model. Below it, the 500 most expensive sessions in the range, with start time, project, message count, subagent share, and cost. Click a session ID to filter to that session; click it again, or the "Session … ✕" button, to clear it. Closing the window resets the filters.
 
@@ -189,7 +207,7 @@ The shipped prices are list prices from Anthropic's pricing page. For Opus 5.5, 
 
 Haiku 5.5 costs more for prompts over 100,000 tokens. An `above` block in `pricing.json` gives those prices, and Burn applies them per request when input plus cache write plus cache read tokens exceed the block's `tokens`.
 
-Transcripts split each message's cache writes into 5-minute and 1-hour, and Burn stores and prices the two separately. A model without `cacheWrite1h` (in its `above` block too) uses 2 × its `input` price, Anthropic's documented multiplier, so an older `pricing.json` needs no edit. Burn re-reads the transcripts still on disk to fill in the split; rows whose transcript is already gone, and lines with no breakdown, count all their writes as 5-minute. Telemetry reports no split, but its cost already reflects it, which is why a matched row takes telemetry's cost.
+Transcripts split each message's cache writes into 5-minute and 1-hour, and Burn stores and prices the two separately. A model without `cacheWrite1h` (in its `above` block too) uses 2 × its `input` price, Anthropic's documented multiplier, so an older `pricing.json` needs no edit. Burn re-reads the transcripts still on disk to fill in the split; rows whose transcript is already gone, and lines with no breakdown, count all their writes as 5-minute. Telemetry from Claude Code 2.1.300 on reports the split too (`cache_creation_5m_tokens` and `cache_creation_1h_tokens`), and Burn stores it; older versions send one `cache_creation_tokens` count, stored as 5-minute. Either way telemetry's cost already reflects the split, which is why a matched row takes telemetry's cost.
 
 ### Unpriced models
 
@@ -240,8 +258,8 @@ To start over, quit Burn and delete `usage.db` (and `usage.db-wal` and `usage.db
 - "Notifications are turned off for Burn." in Settings > Alerts, or no macOS notification. Turn Burn on in System Settings > Notifications > Burn. Until you do, alerts are only the sound.
 - "Notification not sent: …" in the popover or Settings. macOS refused the notification; check System Settings > Notifications > Burn.
 - An alert's notification didn't show while sharing the screen or in Focus. macOS hides it then, and Burn has no fallback. The alert won't fire again that period.
-- "Update failed (…). To reinstall by hand: curl …" in Settings. The download and source build both failed, or the app couldn't be replaced; the message gives the errors. Run the command it shows. "it needs the Command Line Tools" means run `xcode-select --install` first.
-- "Updated to vX. Quit and reopen Burn to finish." The new app is in place but Burn couldn't relaunch itself. Quit and open it.
+- "Update failed: …" in Settings. The download and source build both failed, or the app couldn't be replaced; the message gives the errors. Click "Update to vX" to try again, or "Copy install command" and run it in Terminal. "it needs the Command Line Tools" means run `xcode-select --install` first.
+- "Updated to vX. Quit and reopen Burn to finish." The new app is in place but Burn couldn't relaunch itself. Click "Quit Burn", then open it.
 - "Login item: …" in Settings. macOS refused the login item, usually because a managed Mac blocks them by policy.
 
 ## Icon

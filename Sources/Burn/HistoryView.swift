@@ -130,7 +130,8 @@ struct HistoryView: View {
                 Text(date.wrappedValue, format: .dateTime.day().month(.abbreviated).year()).monospacedDigit()
             }
             .popover(isPresented: shown) {
-                DatePicker(title, selection: date, in: range, displayedComponents: .date)
+                DatePicker(title, selection: Binding(get: { date.wrappedValue }, set: { date.wrappedValue = $0; shown.wrappedValue = false }),
+                           in: range, displayedComponents: .date)
                     .datePickerStyle(.graphical).labelsHidden().padding(8)
             }
         }
