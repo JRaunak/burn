@@ -127,6 +127,16 @@ private func apiRequest(_ rid: String, cost: Double, micros: Int? = nil) -> [Str
         #expect(row?.cacheWrite1h == cacheWrite1h)
     }
 
+    @Test func agentSummaryCountsAsSubagent() throws {
+        let otel = OTelSource(db: try Fixture().db, endpoints: Endpoints())
+        let sidechain = ["subagent", "agent_summary", "repl_main_thread"].map { qs in
+            var a = apiRequest("r1", cost: 0.5)
+            a["query_source"] = qs
+            return otel.row(["attributes": attributes(a)])?.sidechain
+        }
+        #expect(sidechain == [true, true, false])
+    }
+
     @Test func noBreakdownPricesEveryWriteAt5m() throws {
         let f = try Fixture()
         try f.store(transcript("m", rid: nil, premium: false, cacheWrite1h: 0))
@@ -331,7 +341,7 @@ private func apiRequest(_ rid: String, cost: Double, micros: Int? = nil) -> [Str
         }
         let cols = try f.db.run("PRAGMA table_info(messages)").map { $0.str(1) }
         #expect(cols.contains("request_id") && cols.contains("cache_write_1h") && cols.contains("partner") && !cols.contains("dup"))
-        #expect(try f.value("PRAGMA user_version") as? Int == 4)
+        #expect(try f.value("PRAGMA user_version") as? Int == 5)
         #expect(try f.value("SELECT COUNT(*) FROM files") as? Int == 0)
         #expect(try f.value("SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger'") as? Int == 0)
         #expect(try f.value("SELECT request_id FROM messages WHERE id = 'otel:e3c015d5-3fd0'") as? String == "e3c015d5-3fd0")

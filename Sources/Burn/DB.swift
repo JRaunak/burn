@@ -128,6 +128,9 @@ final class DB {
                 try db.merge(r.str(0))
             }
         },
+        { db in
+            try db.exec("UPDATE messages SET sidechain = 1 WHERE source = 'otel' AND agent = 'agent_summary'")
+        },
     ]
 
     func exec(_ sql: String) throws {

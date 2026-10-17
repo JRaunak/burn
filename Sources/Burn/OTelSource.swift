@@ -142,11 +142,13 @@ final class OTelSource: UsageSource {
         let session = a["session.id"] as? String ?? ""
         let rid = a["request_id"] as? String
         let write1h = n("cache_creation_1h_tokens")
+        let agent = a["query_source"] as? String ?? ""
         return UsageRow(
             id: "otel:" + (rid ?? "\(session):\(ts):\(n("output_tokens"))"), source: id, session: session,
             model: normalizeModel(model), ts: ts,
-            sidechain: (a["query_source"] as? String) == "subagent",
-            agent: a["query_source"] as? String ?? "",
+            // agent_summary calls summarise a running subagent's progress.
+            sidechain: agent == "subagent" || agent == "agent_summary",
+            agent: agent,
             input: n("input_tokens"), output: n("output_tokens"),
             cacheWrite: a["cache_creation_tokens"] != nil ? n("cache_creation_tokens") : n("cache_creation_5m_tokens") + write1h,
             cacheWrite1h: write1h, cacheRead: n("cache_read_tokens"), requestID: rid,
