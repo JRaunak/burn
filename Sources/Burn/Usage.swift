@@ -69,6 +69,7 @@ extension DB {
         INSERT INTO messages(id,source,session,project,model,ts,sidechain,agent,input,output,cache_write,cache_write_1h,cache_read,cost,premium,request_id)
         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET
+            project = excluded.project,
             output = MAX(messages.output, excluded.output),
             cache_write_1h = excluded.cache_write_1h,
             cost = COALESCE(excluded.cost, messages.cost),

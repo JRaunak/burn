@@ -85,7 +85,7 @@ final class TranscriptSource: UsageSource {
         defer { try? fh.close() }
 
         let isSubagentFile = path.contains("/subagents/")
-        let fallbackProject = projectName(fromDir: url)
+        let projectDir = projectDir(of: url)
         var rows: [UsageRow] = []
         var carry = Data()
         var consumed = offset
@@ -96,7 +96,7 @@ final class TranscriptSource: UsageSource {
                 guard let nl = carry.lastIndex(of: 0x0A) else { continue }
                 let complete = carry[carry.startIndex...nl]
                 for line in complete.split(separator: 0x0A) {
-                    if let r = parse(Data(line), subagentFile: isSubagentFile, fallbackProject: fallbackProject) {
+                    if let r = parse(Data(line), subagentFile: isSubagentFile, projectDir: projectDir) {
                         rows.append(r)
                     }
                 }
@@ -115,12 +115,12 @@ final class TranscriptSource: UsageSource {
                     for r in rows where !r.session.isEmpty {
                         try db.run("""
                         INSERT INTO sessions(id,project,first_ts,last_ts) VALUES(?,?,?,?)
-                        ON CONFLICT(id) DO UPDATE SET first_ts=MIN(first_ts,excluded.first_ts), last_ts=MAX(last_ts,excluded.last_ts)
+                        ON CONFLICT(id) DO UPDATE SET project=excluded.project, first_ts=MIN(first_ts,excluded.first_ts), last_ts=MAX(last_ts,excluded.last_ts)
                         """, [r.session, r.project, r.ts, r.ts])
                     }
-                    // Telemetry can arrive before its session's transcript; name its project once it's known.
+                    // Telemetry can arrive before its session's transcript, or have copied a since-corrected name.
                     for (session, project) in Dictionary(rows.lazy.filter { !$0.session.isEmpty }.map { ($0.session, $0.project) }, uniquingKeysWith: { a, _ in a }) {
-                        try db.run("UPDATE messages SET project=? WHERE source='otel' AND session=? AND project=''", [project, session])
+                        try db.run("UPDATE messages SET project=? WHERE source='otel' AND session=?", [project, session])
                     }
                     try db.run("""
                     INSERT INTO files(path,inode,offset) VALUES(?,?,?)
@@ -138,7 +138,7 @@ final class TranscriptSource: UsageSource {
     private static let costStateMarker = Data("\"type\":\"cost-state\"".utf8)
     private static let assistantMarker = Data("\"type\":\"assistant\"".utf8)
 
-    private func parse(_ line: Data, subagentFile: Bool, fallbackProject: String) -> UsageRow? {
+    private func parse(_ line: Data, subagentFile: Bool, projectDir: String) -> UsageRow? {
         // cost-state is the one place transcripts name the full Bedrock profile, e.g. us.anthropic.claude-opus-5-5[1m].
         if line.range(of: Self.costStateMarker) != nil,
            let d = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
@@ -156,12 +156,11 @@ final class TranscriptSource: UsageSource {
               let ts = (d["timestamp"] as? String).flatMap(parseISO) else { return nil }
 
         func n(_ k: String) -> Int { (u[k] as? NSNumber)?.intValue ?? 0 }
-        let cwd = d["cwd"] as? String ?? ""
         return UsageRow(
             id: "cc:" + mid,
             source: id,
             session: d["sessionId"] as? String ?? d["session_id"] as? String ?? "",
-            project: cwd.isEmpty ? fallbackProject : (cwd as NSString).lastPathComponent,
+            project: Self.project(cwd: d["cwd"] as? String ?? "", projectDir: projectDir),
             model: normalizeModel(model),
             ts: ts,
             sidechain: subagentFile || (d["isSidechain"] as? Bool ?? false),
@@ -177,12 +176,25 @@ final class TranscriptSource: UsageSource {
         )
     }
 
-    /// "-Users-me-Desktop-Burn" becomes "Burn". Lossy for names containing "-", so cwd is preferred.
-    private func projectName(fromDir url: URL) -> String {
+    /// The top-level directory under `root`, which Claude Code names after the session's launch directory.
+    private func projectDir(of url: URL) -> String {
         var dir = url.deletingLastPathComponent()
         while dir.deletingLastPathComponent().path != root.path, dir.path.count > root.path.count {
             dir = dir.deletingLastPathComponent()
         }
-        return dir.lastPathComponent.split(separator: "-").last.map(String.init) ?? dir.lastPathComponent
+        return dir.lastPathComponent
+    }
+
+    /// The launch directory's name: the cwd or its ancestor that encodes to `projectDir`, every character
+    /// outside [A-Za-z0-9] becoming "-". Otherwise "-Users-me-Desktop-Burn" gives "Burn", lossy for names with "-".
+    static func project(cwd: String, projectDir: String) -> String {
+        let path = Array(cwd.utf16), dir = Array(projectDir.utf16)
+        func encoded(_ c: UInt16) -> UInt16 { c < 128 && isalnum(Int32(c)) != 0 ? c : 0x2D }
+        if path.count >= dir.count, path.count == dir.count || path[dir.count] == 0x2F,
+           zip(path, dir).allSatisfy({ encoded($0) == $1 }),
+           let name = String(decoding: path[..<dir.count], as: UTF16.self).split(separator: "/").last {
+            return String(name)
+        }
+        return projectDir.split(separator: "-").last.map(String.init) ?? projectDir
     }
 }

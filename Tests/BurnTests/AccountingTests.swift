@@ -127,14 +127,14 @@ private func apiRequest(_ rid: String, cost: Double, micros: Int? = nil) -> [Str
         #expect(row?.cacheWrite1h == cacheWrite1h)
     }
 
-    @Test func agentSummaryCountsAsSubagent() throws {
+    @Test func agentQuerySourcesCountAsSubagent() throws {
         let otel = OTelSource(db: try Fixture().db, endpoints: Endpoints())
-        let sidechain = ["subagent", "agent_summary", "repl_main_thread"].map { qs in
+        let sidechain = ["subagent", "agent_summary", "agent:builtin:general-purpose", "agent:custom", "repl_main_thread"].map { qs in
             var a = apiRequest("r1", cost: 0.5)
             a["query_source"] = qs
             return otel.row(["attributes": attributes(a)])?.sidechain
         }
-        #expect(sidechain == [true, true, false])
+        #expect(sidechain == [true, true, true, true, false])
     }
 
     @Test func noBreakdownPricesEveryWriteAt5m() throws {
@@ -165,6 +165,41 @@ private func apiRequest(_ rid: String, cost: Double, micros: Int? = nil) -> [Str
         try f.store(transcript("m", rid: nil, output: c.output, premium: false, model: "claude-haiku-5-5",
                                input: c.input, cacheWrite: c.cacheWrite, cacheWrite1h: c.cacheWrite1h))
         #expect(abs(f.total - c.expected) < 1e-12)
+    }
+}
+
+@Suite struct Projects {
+    @Test(arguments: [
+        ("/Users/raunak.jain/Desktop/Clui", "-Users-raunak-jain-Desktop-Clui", "Clui"),
+        ("/Users/raunak.jain/Desktop/Clui/.claude/surfaces/specs", "-Users-raunak-jain-Desktop-Clui", "Clui"),
+        ("/Users/raunak.jain/Desktop/Clui/.claude/workflows", "-Users-raunak-jain-Desktop-Clui--claude-workflows", "workflows"),
+        ("/Users/me/Desktop/coupa_sourcing_optimization/project/apps", "-Users-me-Desktop-coupa-sourcing-optimization", "coupa_sourcing_optimization"),
+        // Outside the launch directory, a sibling sharing its prefix, and no cwd all fall back to the directory name.
+        ("/private/tmp/clui-peer-name-test", "-Users-raunak-jain-Desktop-Migration", "Migration"),
+        ("/Users/me/my-app2", "-Users-me-my-app", "app"),
+        ("", "-Users-me-my-app", "app"),
+    ])
+    func launchDirectory(cwd: String, dir: String, project: String) {
+        #expect(TranscriptSource.project(cwd: cwd, projectDir: dir) == project)
+    }
+
+    @Test func rereadCorrectsEveryCopyOfTheProject() throws {
+        let f = try Fixture()
+        let source = TranscriptSource(db: f.db)
+        let otel = OTelSource(db: f.db, endpoints: source.endpoints)
+        let file = f.dir.appendingPathComponent("s1.jsonl")
+        try (try assistantLine("msg_a", rid: "r1", output: 4, cacheWrite: 26080, split: (0, 26080)) + "\n")
+            .write(to: file, atomically: true, encoding: .utf8)
+        source.ingest(file)
+        #expect(otel.ingest(try otlp([apiRequest("r1", cost: 0.2)])))
+        let project = try f.value("SELECT project FROM messages WHERE id = 'cc:msg_a'") as? String
+        try f.db.exec("UPDATE messages SET project = 'specs'; UPDATE sessions SET project = 'specs'; DELETE FROM files;")
+        source.ingest(file)
+        #expect(try f.db.run("SELECT project FROM messages UNION ALL SELECT project FROM sessions").map { $0.str(0) }
+            == [String](repeating: project ?? "", count: 3))
+        #expect(project != "specs")
+        #expect(try f.value("SELECT partner FROM messages WHERE id = 'otel:r1'") as? String == "cc:msg_a")
+        #expect(try f.counted() == 1)
     }
 }
 
@@ -341,7 +376,7 @@ private func apiRequest(_ rid: String, cost: Double, micros: Int? = nil) -> [Str
         }
         let cols = try f.db.run("PRAGMA table_info(messages)").map { $0.str(1) }
         #expect(cols.contains("request_id") && cols.contains("cache_write_1h") && cols.contains("partner") && !cols.contains("dup"))
-        #expect(try f.value("PRAGMA user_version") as? Int == 5)
+        #expect(try f.value("PRAGMA user_version") as? Int == 7)
         #expect(try f.value("SELECT COUNT(*) FROM files") as? Int == 0)
         #expect(try f.value("SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger'") as? Int == 0)
         #expect(try f.value("SELECT request_id FROM messages WHERE id = 'otel:e3c015d5-3fd0'") as? String == "e3c015d5-3fd0")
@@ -351,6 +386,21 @@ private func apiRequest(_ rid: String, cost: Double, micros: Int? = nil) -> [Str
         #expect(abs(f.total - (0.208728 + 0.1) * 1.1) < 1e-12)
         // Reopening runs no step again.
         _ = try DB(url: f.dir.appendingPathComponent("usage.db"))
+    }
+
+    @Test func steps6And7FromVersion5() throws {
+        let f = try Fixture { url in
+            let db = try DB(url: url)
+            try db.exec("""
+            INSERT INTO files VALUES('/x.jsonl', 1, 99);
+            INSERT INTO messages(id, source, model, ts, agent) VALUES
+                ('otel:a', 'otel', 'claude-opus-5-5', \(t0), 'agent:builtin:Explore'),
+                ('otel:b', 'otel', 'claude-opus-5-5', \(t0), 'repl_main_thread');
+            PRAGMA user_version = 5;
+            """)
+        }
+        #expect(try f.value("SELECT COUNT(*) FROM files") as? Int == 0)
+        #expect(try f.db.run("SELECT sidechain FROM messages ORDER BY id").map { $0.int(0) } == [1, 0])
     }
 
     /// Runs only when pointed at a disposable copy: BURN_MIGRATION_DB=/tmp/copy.db swift test --filter liveCopy

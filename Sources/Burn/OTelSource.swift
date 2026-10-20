@@ -146,8 +146,8 @@ final class OTelSource: UsageSource {
         return UsageRow(
             id: "otel:" + (rid ?? "\(session):\(ts):\(n("output_tokens"))"), source: id, session: session,
             model: normalizeModel(model), ts: ts,
-            // agent_summary calls summarise a running subagent's progress.
-            sidechain: agent == "subagent" || agent == "agent_summary",
+            // agent:<type> calls are subagents; agent_summary calls summarise a running one's progress.
+            sidechain: agent == "subagent" || agent == "agent_summary" || agent.hasPrefix("agent:"),
             agent: agent,
             input: n("input_tokens"), output: n("output_tokens"),
             cacheWrite: a["cache_creation_tokens"] != nil ? n("cache_creation_tokens") : n("cache_creation_5m_tokens") + write1h,

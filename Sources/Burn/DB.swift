@@ -131,6 +131,9 @@ final class DB {
         { db in
             try db.exec("UPDATE messages SET sidechain = 1 WHERE source = 'otel' AND agent = 'agent_summary'")
         },
+        // A re-read files each message under its session's launch directory, not its cwd.
+        { db in try db.exec("DELETE FROM files") },
+        { db in try db.exec("UPDATE messages SET sidechain = 1 WHERE source = 'otel' AND agent LIKE 'agent:%'") },
     ]
 
     func exec(_ sql: String) throws {
